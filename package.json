@@ -1,6 +1,5 @@
 {
   "dependencies": {
     "express": "^5.2.1",
-    "mongoose": "^8.5.0"
   }
 }
