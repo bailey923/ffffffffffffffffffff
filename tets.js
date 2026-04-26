@@ -1,70 +1,132 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
+const mongoose = require("mongoose");
 
 const app = express();
 app.use(express.json());
 
-const DATA_DIR = path.join(__dirname, "data");
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+const PORT = 10000;
+const MONGODB_URI = "mongodb+srv://peepeemanok_db_user:<db_password>@cluster0.yb5p0oc.mongodb.net/?appName=Cluster0";
 
-function defaultData() {
+// -----------------------------
+// MongoDB Setup
+// -----------------------------
+mongoose
+  .connect(MONGODB_URI)
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((err) => {
+    console.error("MongoDB connection error:", err);
+    process.exit(1);
+  });
+
+// -----------------------------
+// Schema / Model
+// -----------------------------
+const userDataSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: String,
+      required: true,
+      unique: true,
+      index: true,
+    },
+    Coins: {
+      type: Number,
+      default: 0,
+    },
+    Level: {
+      type: Number,
+      default: 1,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
+
+const UserData = mongoose.model("UserData", userDataSchema);
+
+// -----------------------------
+// Helpers
+// -----------------------------
+function defaultData(userId) {
   return {
+    userId,
     Coins: 0,
     Level: 1,
   };
 }
 
-app.get("/load/:userId", (req, res) => {
-  const userId = req.params.userId;
-  const filePath = path.join(DATA_DIR, `${userId}.json`);
+// -----------------------------
+// Routes
+// -----------------------------
+app.get("/load/:userId", async (req, res) => {
+  const { userId } = req.params;
 
   console.log("LOAD request for:", userId);
-  console.log("File path:", filePath);
-
-  if (!fs.existsSync(filePath)) {
-    const data = defaultData();
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    console.log("Created new file for:", userId);
-    return res.json(data);
-  }
 
   try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const data = JSON.parse(raw);
-    return res.json(data);
+    let user = await UserData.findOne({ userId });
+
+    if (!user) {
+      user = await UserData.create(defaultData(userId));
+      console.log("Created new record for:", userId);
+    }
+
+    return res.json({
+      userId: user.userId,
+      Coins: user.Coins,
+      Level: user.Level,
+    });
   } catch (err) {
     console.error("Load error:", err);
-    const data = defaultData();
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return res.json(data);
+    return res.status(500).json({ error: "Failed to load user data" });
   }
 });
 
-app.post("/save", (req, res) => {
+app.post("/save", async (req, res) => {
   const { userId, data } = req.body || {};
 
   console.log("SAVE request for:", userId);
 
-  if (!userId || typeof data !== "object") {
+  if (!userId || typeof data !== "object" || data === null) {
     return res.status(400).json({ error: "Missing userId or data" });
   }
 
-  const filePath = path.join(DATA_DIR, `${userId}.json`);
-
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    console.log("Saved file for:", userId);
-    return res.json({ ok: true });
+    const updated = await UserData.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          Coins: typeof data.Coins === "number" ? data.Coins : 0,
+          Level: typeof data.Level === "number" ? data.Level : 1,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+
+    console.log("Saved record for:", userId);
+
+    return res.json({
+      ok: true,
+      data: {
+        userId: updated.userId,
+        Coins: updated.Coins,
+        Level: updated.Level,
+      },
+    });
   } catch (err) {
     console.error("Save error:", err);
     return res.status(500).json({ error: "Failed to save" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
+// -----------------------------
+// Start Server
+// -----------------------------
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
