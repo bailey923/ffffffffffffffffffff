@@ -7,7 +7,7 @@ app.use(express.json());
 
 const DATA_DIR = path.join(__dirname, "data");
 if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR);
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
 function defaultData() {
@@ -21,11 +21,13 @@ app.get("/load/:userId", (req, res) => {
   const userId = req.params.userId;
   const filePath = path.join(DATA_DIR, `${userId}.json`);
 
-  console.log("LOAD request for", userId);
+  console.log("LOAD request for:", userId);
+  console.log("File path:", filePath);
 
   if (!fs.existsSync(filePath)) {
     const data = defaultData();
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    console.log("Created new file for:", userId);
     return res.json(data);
   }
 
@@ -44,7 +46,7 @@ app.get("/load/:userId", (req, res) => {
 app.post("/save", (req, res) => {
   const { userId, data } = req.body || {};
 
-  console.log("SAVE request for", userId);
+  console.log("SAVE request for:", userId);
 
   if (!userId || typeof data !== "object") {
     return res.status(400).json({ error: "Missing userId or data" });
@@ -54,6 +56,7 @@ app.post("/save", (req, res) => {
 
   try {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    console.log("Saved file for:", userId);
     return res.json({ ok: true });
   } catch (err) {
     console.error("Save error:", err);
