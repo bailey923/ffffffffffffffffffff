@@ -5,7 +5,7 @@ const app = express();
 app.use(express.json());
 
 const PORT = 10000;
-const MONGODB_URI = "mongodb+srv://peepeemanok_db_user:<db_password>@cluster0.yb5p0oc.mongodb.net/?appName=Cluster0";
+const MONGODB_URI = "mongodb+srv://peepeemanok_db_user:goononmytoes@cluster0.yb5p0oc.mongodb.net/?appName=Cluster0";
 
 mongoose
   .connect(MONGODB_URI)
