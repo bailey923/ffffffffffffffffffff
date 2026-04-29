@@ -1,13 +1,36 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
+const { MongoClient } = require("mongodb");
 
 const app = express();
 app.use(express.json());
 
-const DATA_DIR = path.join(__dirname, "data");
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+const PORT = process.env.PORT || 10000;
+const MONGO_URI = process.env.MONGO_URI;
+const DB_NAME = process.env.DB_NAME || "gameData";
+const API_KEY = process.env.API_KEY;
+const DEFAULT_GAME_ID = "game1";
+
+if (!MONGO_URI) {
+  throw new Error("Missing MONGO_URI");
+}
+
+if (!API_KEY) {
+  throw new Error("Missing API_KEY");
+}
+
+let collection;
+
+async function start() {
+  const client = new MongoClient(MONGO_URI);
+  await client.connect();
+
+  const db = client.db(DB_NAME);
+  collection = db.collection("playerData");
+
+  // One save per user per game
+  await collection.createIndex({ gameId: 1, userId: 1 }, { unique: true });
+
+  console.log("Connected to MongoDB");
 }
 
 function defaultData() {
@@ -17,46 +40,67 @@ function defaultData() {
   };
 }
 
-app.get("/load/:userId", (req, res) => {
-  const userId = req.params.userId;
-  const filePath = path.join(DATA_DIR, `${userId}.json`);
-
-  console.log("LOAD request for:", userId);
-  console.log("File path:", filePath);
-
-  if (!fs.existsSync(filePath)) {
-    const data = defaultData();
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    console.log("Created new file for:", userId);
-    return res.json(data);
+function auth(req, res, next) {
+  const key = req.headers["x-api-key"];
+  if (key !== API_KEY) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
+  next();
+}
 
+app.use(auth);
+
+app.get("/:gameId/load/:userId", async (req, res) => {
   try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const data = JSON.parse(raw);
-    return res.json(data);
+    const gameId = req.params.gameId || DEFAULT_GAME_ID;
+    const userId = String(req.params.userId);
+
+    let doc = await collection.findOne({ gameId, userId });
+
+    if (!doc) {
+      const data = defaultData();
+
+      await collection.insertOne({
+        gameId,
+        userId,
+        data,
+        updatedAt: new Date(),
+      });
+
+      return res.json(data);
+    }
+
+    return res.json(doc.data || defaultData());
   } catch (err) {
     console.error("Load error:", err);
-    const data = defaultData();
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    return res.json(data);
+    return res.status(500).json({ error: "Failed to load" });
   }
 });
 
-app.post("/save", (req, res) => {
-  const { userId, data } = req.body || {};
-
-  console.log("SAVE request for:", userId);
-
-  if (!userId || typeof data !== "object") {
-    return res.status(400).json({ error: "Missing userId or data" });
-  }
-
-  const filePath = path.join(DATA_DIR, `${userId}.json`);
-
+app.post("/:gameId/save", async (req, res) => {
   try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-    console.log("Saved file for:", userId);
+    const gameId = req.params.gameId || DEFAULT_GAME_ID;
+    const { userId, data } = req.body || {};
+
+    if (!userId || typeof data !== "object") {
+      return res.status(400).json({ error: "Missing userId or data" });
+    }
+
+    await collection.updateOne(
+      { gameId, userId: String(userId) },
+      {
+        $set: {
+          data,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          gameId,
+          userId: String(userId),
+        },
+      },
+      { upsert: true }
+    );
+
     return res.json({ ok: true });
   } catch (err) {
     console.error("Save error:", err);
@@ -64,7 +108,13 @@ app.post("/save", (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Loaded! Running on ${PORT}`);
-});
+start()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Startup error:", err);
+    process.exit(1);
+  });
