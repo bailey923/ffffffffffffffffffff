@@ -4,19 +4,11 @@ const { MongoClient } = require("mongodb");
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 10000;
+const PORT = 10000;
 const MONGO_URI = process.env.MONGO_URI;
 const DB_NAME = process.env.DB_NAME || "gameData";
 const API_KEY = process.env.API_KEY;
 const DEFAULT_GAME_ID = "game1";
-
-if (!MONGO_URI) {
-  throw new Error("Missing MONGO_URI");
-}
-
-if (!API_KEY) {
-  throw new Error("Missing API_KEY");
-}
 
 let collection;
 
